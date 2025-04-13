@@ -103,11 +103,6 @@
       failed_when: error_check.stdout != ""
       when: debug_vm_install | default(false)
 
-    - name: Display error if found
-      ansible.builtin.debug:
-        msg: "FATAL: Error detected in guest: {{ error_check.stdout }}"
-      when: debug_vm_install | default(false) and error_check.stdout != ""
-
     - name: Stop VM on error
       community.libvirt.virt:
         name: "{{ vm_name }}"
@@ -116,5 +111,5 @@
 
     - name: Fail playbook if error was detected
       ansible.builtin.fail:
-        msg: "FATAL: VM setup failed"
+        msg: "FATAL: Error detected in guest: {{ error_check.stdout }}"
       when: debug_vm_install | default(false) and error_check.stdout != ""
