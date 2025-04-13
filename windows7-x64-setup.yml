@@ -1,0 +1,176 @@
+---
+- hosts: 127.0.0.1
+  connection: local
+
+  vars:
+    pkg_dir: 'toinstall'
+    # Put drivers in {{config_dive}}/$WinpeDriver$ Windows will autoinstall it
+    drivers_dir: '$WinpeDriver$'
+  tasks:
+  #NOTE TLS 1.2 https://catalog.update.microsoft.com/search.aspx?q=kb3140245
+    - name: Create temporary work directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: iso_build_dir
+      register: iso_temp_root_build_dir
+    - name: Create temp iso root directory
+      ansible.builtin.file:
+        state: directory
+        path: '{{ iso_temp_root_build_dir.path }}/iso'
+    - name: Creating base configuration files for Windows and Ansible
+      win_setup:
+        # destination (root dir) for config files, generate ISO file in next tasks
+        config_output_dir: '{{ iso_temp_root_build_dir.path }}/iso'
+        # Change credentials after ansible installation if needed
+        admin_password: "Passw0rd!"
+        user_name: "IEUser"
+        user_password: "Passw0rd!"
+        computer_name: "IEWIN"
+        #first_logon_cmd: ""
+
+        # Gets converted to install.json to use in Windows Powershell
+        # files for installation with `name`s should be placed to
+        # `{{ config_iso_files_dir }}/{{pkg_dir}}/` directory in the following tasks
+        # index should be unique sortable value
+        installation_steps:
+          - description: windows 7 sp1 64 kb2533552
+            index: 1
+            msu:
+              path: '\{{pkg_dir}}\windows6.1-kb2533552-x64.msu'
+              args: /quiet /NoRestart
+          - description: windows 7 sp1 64
+            index: 2
+            restart: true
+            exe: 
+              path: '\{{pkg_dir}}\windows6.1-kb976932-x64.exe'
+              args: /quiet
+          - index: 3  
+            msi:
+              path: '\{{pkg_dir}}\OpenSSH-Win32-v8.9.1.0.msi'
+              args: ACTION=INSTALL UILevel=3 REBOOT=ReallySuppress
+          - index: 4
+            description: win7 sha256 codesign
+            restart: true
+            msu:
+              path: '\{{pkg_dir}}\windows6.1-kb4474419-v3-x64.msu'
+              args: /quiet /NoRestart
+          - index: 5
+            exe:
+              path: '\{{pkg_dir}}\ndp48-x86-x64-allos-enu.exe'
+              args: /q /norestart
+          - description: create dir temp\Win7AndW2K8R2-KB3191566-x64
+            index: 6
+            file:
+              state: directory
+              parents: true
+              path: C:\Win7AndW2K8R2-KB3191566-x64
+          - description: unzip Win7AndW2K8R2-KB3191566-x64 to temp\Win7AndW2K8R2-KB3191566-x64
+            index: 7
+            zip: #shell32 may fail but it tries to insert workdir and then search second time
+              path: '\{{pkg_dir}}\Win7AndW2K8R2-KB3191566-x64.zip'
+              dest: C:\Win7AndW2K8R2-KB3191566-x64
+          - description: install Win7AndW2K8R2-KB3191566-x64
+            index: 8
+            msu:
+              path: C:\Win7AndW2K8R2-KB3191566-x64\Win7AndW2K8R2-KB3191566-x64.msu
+              args: /quiet /NoRestart
+          - description: delete \Win7AndW2K8R2-KB3191566-x64
+            index: 9
+            restart: true
+            file:
+              state: absent
+              recurse: true
+              path: C:\Win7AndW2K8R2-KB3191566-x64
+    
+    - name: Create pkg directory
+      ansible.builtin.file:
+        state: directory
+        path: '{{ iso_temp_root_build_dir.path }}/iso/{{pkg_dir}}'        
+    - name: Download win7 sp1 x64 windows6.1-kb976932
+      ansible.builtin.get_url:
+        url: >-
+          https://catalog.s.download.windowsupdate.com/msdownload/update/software/svpk/2011/02/windows6.1-kb976932-x64_74865ef2562006e51d7f9333b4a8d45b7a749dab.exe
+        dest: '{{ iso_temp_root_build_dir.path }}/iso/{{pkg_dir}}/windows6.1-kb976932-x64.exe'
+        force: true
+        checksum: sha256:f4d1d418d91b1619688a482680ee032ffd2b65e420c6d2eaecf8aa3762aa64c8
+    - name: Download windows6.1-kb2533552-x64
+      ansible.builtin.get_url:
+        url: >-
+          https://catalog.s.download.windowsupdate.com/msdownload/update/software/crup/2011/05/windows6.1-kb2533552-x64_0ba5ac38d4e1c9588a1e53ad390d23c1e4ecd04d.msu
+        dest: '{{ iso_temp_root_build_dir.path }}/iso/{{pkg_dir}}/windows6.1-kb2533552-x64.msu'
+        force: true
+        checksum: sha256:d8707355bffc38849a7ed6e0e93f7baf58442e85792c94b00c5e9289e2f0649e
+    - name: Download OpenSSH-Win32-v8.9.1.0.msi
+      ansible.builtin.get_url:
+        url: >-
+          https://github.com/PowerShell/Win32-OpenSSH/releases/download/v8.9.1.0p1-Beta/OpenSSH-Win32-v8.9.1.0.msi
+        dest: '{{ iso_temp_root_build_dir.path }}/iso/{{pkg_dir}}/OpenSSH-Win32-v8.9.1.0.msi'
+        force: true
+        checksum: sha256:16a0e2b6f01b86d866e422fb6f27b867ab5ed63cade94171003338395f0f26c6
+    - name: Download win7 sha256 codesign update
+      ansible.builtin.get_url:
+        url: >-
+          https://catalog.s.download.windowsupdate.com/c/msdownload/update/software/secu/2019/09/windows6.1-kb4474419-v3-x64_b5614c6cea5cb4e198717789633dca16308ef79c.msu
+        dest: '{{ iso_temp_root_build_dir.path }}/iso/{{pkg_dir}}/windows6.1-kb4474419-v3-x64.msu'
+        force: true
+        checksum: sha256:99312df792b376f02e25607d2eb3355725c47d124d8da253193195515fe90213
+    - name: Download ndp48-x86-x64-allos-enu.exe
+      ansible.builtin.get_url:
+        url: >-
+          https://download.visualstudio.microsoft.com/download/pr/2d6bb6b2-226a-4baa-bdec-798822606ff1/8494001c276a4b96804cde7829c04d7f/ndp48-x86-x64-allos-enu.exe
+        dest: '{{ iso_temp_root_build_dir.path }}/iso/{{pkg_dir}}/ndp48-x86-x64-allos-enu.exe'
+        force: true
+        checksum: sha256:68c9986a8dcc0214d909aa1f31bee9fb5461bb839edca996a75b08ddffc1483f
+    - name: Download WMF 5.1
+      ansible.builtin.get_url:
+        url: >-
+          https://download.microsoft.com/download/6/F/5/6F5FF66C-6775-42B0-86C4-47D41F2DA187/Win7AndW2K8R2-KB3191566-x64.zip
+        dest: '{{ iso_temp_root_build_dir.path }}/iso/{{pkg_dir}}/Win7AndW2K8R2-KB3191566-x64.zip'
+        force: true
+        checksum: sha256:f383c34aa65332662a17d95409a2ddedadceda74427e35d05024cd0a6a2fa647
+    - name: Download Virtio Drivers
+      ansible.builtin.get_url:
+        url: >-
+          https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.173-2/virtio-win.iso
+        dest: '{{ iso_temp_root_build_dir.path }}/virtio-win.iso'
+        force: true
+        checksum: sha256:8da37d153be6c12fdc25205517c3727fec7799d1060ac38111f404b274478344
+    - name: Create drivers directory
+      ansible.builtin.file:
+        state: directory
+        path: '{{ iso_temp_root_build_dir.path }}/iso/{{drivers_dir}}'
+    - name: Extract virtio drivers
+      community.general.iso_extract:
+        image: '{{ iso_temp_root_build_dir.path }}/virtio-win.iso'
+        dest: '{{ iso_temp_root_build_dir.path }}/iso/{{drivers_dir}}'
+        files:
+          - vioscsi/w7/amd64/vioscsi.cat
+          - vioscsi/w7/amd64/vioscsi.inf
+          - vioscsi/w7/amd64/vioscsi.pdb
+          - vioscsi/w7/amd64/vioscsi.sys
+          - viostor/w7/amd64/viostor.cat
+          - viostor/w7/amd64/viostor.inf
+          - viostor/w7/amd64/viostor.sys
+          - viostor/w7/amd64/viostor.pdb
+          - NetKVM/w7/amd64/netkvm.cat
+          - NetKVM/w7/amd64/netkvm.inf
+          - NetKVM/w7/amd64/netkvm.pdb
+          - NetKVM/w7/amd64/netkvm.sys
+          - NetKVM/w7/amd64/netkvmco.dll
+          - NetKVM/w7/amd64/netkvmco.pdb
+    - name: Create an windows config ISO file with Joliet support
+    # default_entry_point = "%s\\start.ps1" % default_config_drive
+    # default_main_code_file = "%s\\main.cs" % default_config_drive
+    # default_install_json_path = "%s\\install.json" % default_config_drive
+      community.general.iso_create:
+        src_files:
+          - '{{ iso_temp_root_build_dir.path }}/iso/{{drivers_dir}}'
+          - '{{ iso_temp_root_build_dir.path }}/iso/{{pkg_dir}}'
+          - '{{ iso_temp_root_build_dir.path }}/iso/start.ps1'
+          - '{{ iso_temp_root_build_dir.path }}/iso/main.cs'
+          - '{{ iso_temp_root_build_dir.path }}/iso/install.json'
+          - '{{ iso_temp_root_build_dir.path }}/iso/autounattend.xml'
+        dest_iso: '{{ iso_output_path }}'
+        interchange_level: 4
+        joliet: 3
+        vol_ident: WIN_AUTOINSTALL

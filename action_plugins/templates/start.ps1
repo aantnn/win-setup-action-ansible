@@ -1,7 +1,28 @@
-$installJson = "{{install_json}}"
+$installJson = "{{default_package_json_path}}"
 $startupPath = "{{entry_point}}"
 $MainCodeFile = "{{main_code}}"
 $adminPassword = "{{admin_password}}"
+
+function Get-ConfigDrive {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$FileToFind
+    )
+    
+    # Extract the filename from the path
+    $fileName = Split-Path -Leaf $FileToFind
+    
+    # Search for the file on all drives
+    foreach ($drive in (Get-Volume | Where-Object { $_.DriveLetter } | Select-Object -ExpandProperty DriveLetter)) {
+        $filePath = Join-Path -Path "$drive`:\" -ChildPath $fileName
+        if (Test-Path -Path $filePath) {
+            return "$drive`:\"
+        }
+    }
+    
+    # If not found, return null
+    return $null
+}
 
 function Start-App() {
     if (-not (Test-Administrator)) {
@@ -31,19 +52,6 @@ function Start-ElevatedProcess() {
         -ArgumentList $adminUserName, $PWord
     Start-Process powershell.exe -Credential $adminCredential `
         -ArgumentList "-NoExit -ExecutionPolicy Bypass $PSCommandPath"
-}
-
-function Get-ConfigDrive($FileToFind) {
-    $drives = Get-PSDrive -PSProvider FileSystem
-    foreach ($drive in $drives) {
-        $driveLetter = $drive.Name + ":"
-        $filePath = Join-Path -Path $driveLetter -ChildPath $fileToFind
-        if (Test-Path $filePath) {
-            return $driveLetter
-        }
-    }
-    $errorMessage = "Configuration file '$fileToFind' not found on any drive. Please ensure the config file exists and is accessible."
-    throw [System.IO.FileNotFoundException]::new($errorMessage, $fileToFind)
 }
 
 function Get-LocalizedAdminAccountName {
@@ -120,7 +128,7 @@ function Enable-RemoteManagement {
 
 
 function Start-WinServer22-Elevated-With-RunAs($adminUserName) {
-    # Workaround for windows server 2022 elevated privilegies 
+    # DOES NOT WORK USE PWSH-CORE
     $csharpCode = @"
 using System;
 using System.Runtime.InteropServices;
@@ -201,7 +209,7 @@ public class RunAsCredentialManager
     # Add the C# type to the PowerShell session
     Add-Type -TypeDefinition $csharpCode -Language CSharp
 
-    # To use with /runas /cred
+    # To use with runas /cred
     [RunAsCredentialManager]::WriteCredential("$env:COMPUTERNAME\$adminUserName", "$env:COMPUTERNAME\$adminUserName", "$adminPassword")
 
     runas /savecred /user:"$env:COMPUTERNAME\$adminUserName" "powershell.exe -NoExit -ExecutionPolicy Bypass $PSCommandPath"

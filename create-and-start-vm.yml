@@ -1,0 +1,74 @@
+# TODO switch to ansible from Dockerfile bash script
+
+# set qemu.conf remember_owner = 0 and allow rw to /sys/fs/cgroup/machine/
+# https://www.spinics.net/linux/fedora/libvirt-users/msg13808.html
+
+# DISKPATH="${VMDISK_DIR}/${VMDISK}"
+# VNC_SOCKET_PATH="${VNC_SOCKET_DIR}/${VNC_SOCKET}"
+# ansible-playbook -vvvvvvvv /project/run_vm.yml -e \
+# "vm_disk_path=$DISKPATH vm_name=$VM_NAME vm_disk_size=$DISK_SIZE \
+# vm_os_variant=$VM_OS_VARIANT os_iso_path=$OS_ISO_TARGET vm_config_iso=$CONFIG_ISO \
+# vm_ram=$RAM_SIZE vm_vnc_socket_path=$VNC_SOCKET_PATH vm_xml_path=$VM_XML_DEST"
+# while true; do echo && sleep 1; done
+
+---
+- hosts: 127.0.0.1
+  connection: local
+
+  tasks:
+    - name: Checking vm disk existance
+      ansible.builtin.stat:
+        path: "{{ vm_disk_path }}"
+      register: vm_disk_check
+    - name: Start libvirtd deamon
+      ansible.builtin.command:
+        cmd: >-
+           /usr/sbin/libvirtd -d
+      when: ansible_virtualization_type == "container"
+      register: _libvirtd
+      changed_when: _libvirtd.rc == 0
+    - name: Start virtlogd deamon
+      ansible.builtin.command:
+        cmd: >-
+           /usr/sbin/virtlogd -d
+      when: ansible_virtualization_type == "container"
+      register: _virtlogd
+      changed_when: _virtlogd.rc == 0
+    - name: Create virtual machine disk
+      ansible.builtin.command:
+        cmd: >-
+          qemu-img create -f qcow2 -o compression_type=zstd  "{{ vm_disk_path }}"  "{{ vm_disk_size }}G"
+      register: created_disk
+      when: not vm_disk_check.stat.exists
+      changed_when: created_disk.rc == 0
+    - name: Create virtual machine XML config
+      ansible.builtin.command:
+      # NOTE: nic,model=virtio-net-pci,addr= 4,5 or some other value, may conflict
+        cmd: >-
+          virt-install --import --name {{ vm_name }} --os-variant {{ vm_os_variant }}
+          --network none --qemu-commandline='-net nic,model=virtio-net-pci,addr=4
+          -net user,hostfwd=tcp::3389-:3389,hostfwd=tcp::5985-:5985'
+          --disk "{{ vm_disk_path }}",format=qcow2,bus=virtio
+          --disk "{{ os_iso_path }}",device=cdrom
+          --disk "{{ vm_config_iso }}",device=cdrom
+          --memory {{ vm_ram }}
+          --vcpus={{ ansible_processor_vcpus }}
+          --channel unix,mode=bind,target.type=virtio,target.name="org.qemu.qemu.guest_agent"
+          --graphics vnc,listen=0.0.0.0 --noautoconsole
+          --print-xml
+      register: created_vm_config
+      changed_when: created_vm_config.rc == 0
+    - name: Saving XML configuration
+      ansible.builtin.copy:
+        content: "{{ created_vm_config.stdout }}"
+        dest: "{{ vm_xml_path }}"
+    - name: Define vm from xml and set autostart
+      community.libvirt.virt:
+        command: define
+        xml: "{{ created_vm_config.stdout }}"
+        autostart: true
+      register: virtial_machine_xml
+    - name: Start VM
+      community.libvirt.virt:
+          name: "{{ vm_name }}"
+          state: running

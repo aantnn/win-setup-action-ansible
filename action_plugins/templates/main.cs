@@ -10,140 +10,220 @@ using System.Runtime.InteropServices;
 using System.Web.Script.Serialization;
 using Microsoft.Win32;
 
-
-
-
-/*
-* NOTE: Win7 SP1 installation forces reboot disregarding "/norestart" option
-* https://social.technet.microsoft.com/Forums/ie/en-US/c4b7c3fc-037c-4e45-ab11-f6f64837521a/how-to-disable-reboot-after-sp1-installation-distribution-as-exe-via-sccm?forum=w7itproinstall
-* It should continue installing after reboot skipping installed packages
-*/
+/// <summary>
+/// Main class for Windows image building automation
+/// </summary>
 public class WinImageBuilderAutomation
 {
+    private const string DEFAULT_PACKAGE_JSON_PATH = "{{default_package_json_path}}";
+    private const string LOCK_FILE = "{{lock_file}}";
+    private const string DONE_LIST_FILE = "{{done_list_file}}";
+
+    /// <summary>
+    /// Entry point for the automation
+    /// </summary>
     public static void Main()
     {
-        string packageJsonPath = "\\install.json"; //templated by Ansible
-        Main2(packageJsonPath, "E:");
-        return;
-    }
-    public static void Main2(string packageJsonPath, string diskDrive)
-    {
-        Directory.SetCurrentDirectory(diskDrive);
-        using (SingleInstance instance = new SingleInstance(Environment.GetEnvironmentVariable("TEMP")
-            + "\\ansiblewinbuilder.lock"))
+        try
         {
-            string doneList = Environment.GetEnvironmentVariable("SystemDrive")
-                + "\\ansible-win-setup-done-list.log";
-
-            List<ActionBase> actions = LoadAndDeserialize(packageJsonPath);
-
-            actions.Sort(new ActionComparer()); // sort by Index property (priority)
-
-            CheckDuplicateIndexes(actions);
-
-            using (ActionTracker indexTracker = new ActionTracker(doneList))
+            // Find the drive letter dynamically
+            string driveLetter = GetConfigDrive(DEFAULT_PACKAGE_JSON_PATH);
+            if (string.IsNullOrEmpty(driveLetter))
             {
-                foreach (IAction action in actions)
+                throw new FileNotFoundException($"Configuration file not found on any drive: {DEFAULT_PACKAGE_JSON_PATH}");
+            }
+            
+            Main2(DEFAULT_PACKAGE_JSON_PATH, driveLetter);
+        }
+        catch (Exception ex)
+        {
+            LogError("Main execution failed", ex);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Main execution method with configurable paths
+    /// </summary>
+    public static void Main2(string packageJsonPath, string driveLetter)
+    {
+        try
+        {
+            Directory.SetCurrentDirectory(driveLetter);
+            using (var instance = new SingleInstance(Path.Combine(Environment.GetEnvironmentVariable("TEMP"), LOCK_FILE)))
+            {
+                string doneList = Path.Combine(Environment.GetEnvironmentVariable("SystemDrive"), DONE_LIST_FILE);
+                var actions = LoadAndDeserialize(packageJsonPath);
+                ExecuteActions(actions, doneList);
+            }
+            RemoveFromAutoStart();
+        }
+        catch (Exception ex)
+        {
+            LogError("Main2 execution failed", ex);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Gets the drive letter where the configuration file is located
+    /// </summary>
+    private static string GetConfigDrive(string fileToFind)
+    {
+        try
+        {
+            // Extract the filename from the path
+            string fileName = Path.GetFileName(fileToFind);
+            
+            // Get all available drives
+            DriveInfo[] drives = DriveInfo.GetDrives();
+            
+            // Search for the file on all drives
+            foreach (DriveInfo drive in drives)
+            {
+                if (!drive.IsReady)
+                    continue;
+                    
+                string filePath = Path.Combine(drive.RootDirectory.FullName, fileName);
+                if (File.Exists(filePath))
                 {
-                    if (indexTracker.IsDone(action.Index))
-                    {
-                        continue;
-                    }
-                    else
-                    {
-                        action.Invoke();
+                    return drive.RootDirectory.FullName;
+                }
+            }
+            
+            // If not found, return null
+            return null;
+        }
+        catch (Exception ex)
+        {
+            LogError("Failed to get config drive", ex);
+            return null;
+        }
+    }
 
-                        indexTracker.Append(action.Index);
-                        if (action.Restart)
-                        {
-                            indexTracker.Save();
-                            Process.Start("shutdown", "/r /t 0");
-                            Environment.Exit(0);
-                            return;
-                        }
+    private static void ExecuteActions(List<ActionBase> actions, string doneList)
+    {
+        actions.Sort(new ActionComparer());
+        CheckDuplicateIndexes(actions);
 
+        using (var indexTracker = new ActionTracker(doneList))
+        {
+            foreach (var action in actions)
+            {
+                if (indexTracker.IsDone(action.Index))
+                    continue;
+
+                try
+                {
+                    action.Invoke();
+                    indexTracker.Append(action.Index);
+
+                    if (action.Restart)
+                    {
+                        indexTracker.Save();
+                        RestartSystem();
                     }
                 }
-                indexTracker.Save();
+                catch (Exception ex)
+                {
+                    LogError($"Action {action.Index} failed", ex);
+                    throw;
+                }
             }
+            indexTracker.Save();
         }
-        RemoveFromAutoStart();
     }
 
-
+    private static void RestartSystem()
+    {
+        Process.Start("shutdown", "/r /t 0");
+        Environment.Exit(0);
+    }
 
     private static List<ActionBase> LoadAndDeserialize(string packageJsonPath)
     {
-        List<ActionBase> actions = new List<ActionBase>();
-        string packageJsonContent = File.ReadAllText(packageJsonPath);
-        JavaScriptSerializer serializer = new JavaScriptSerializer();
-        List<JavaScriptConverter> converters = new List<JavaScriptConverter> { new CustomDispatchConverter() };
-        serializer.RegisterConverters(converters);
-        actions = serializer.Deserialize<List<ActionBase>>(packageJsonContent);
-        return actions;
+        try
+        {
+            string packageJsonContent = File.ReadAllText(packageJsonPath);
+            var serializer = new JavaScriptSerializer();
+            var converters = new List<JavaScriptConverter> { new CustomDispatchConverter() };
+            serializer.RegisterConverters(converters);
+            return serializer.Deserialize<List<ActionBase>>(packageJsonContent);
+        }
+        catch (Exception ex)
+        {
+            LogError("Failed to load and deserialize package JSON", ex);
+            throw;
+        }
     }
 
     public static void AddToAutoStart(string startupPath)
     {
-        Dictionary<string, object> mainPs1Autostart = new Dictionary<string, object>
+        var autostartConfig = new Dictionary<string, object>
         {
-            {"state", "present" },
-            { "keyname", "start.ps1" },
-            { "interpreter", "powershell.exe -NoExit -ExecutionPolicy Bypass -File" },
-            { "target", startupPath},
-            {"args", "" }
+            {"state", "present"},
+            {"keyname", "start.ps1"},
+            {"interpreter", "powershell.exe -NoExit -ExecutionPolicy Bypass -File"},
+            {"target", startupPath},
+            {"args", ""}
         };
 
-        AutostartAction autostartAction = new AutostartAction(mainPs1Autostart);
+        var autostartAction = new AutostartAction(autostartConfig);
         autostartAction.Invoke();
     }
+
     private static void RemoveFromAutoStart()
     {
-        Dictionary<string, object> mainPs1Autostart = new Dictionary<string, object>
+        var autostartConfig = new Dictionary<string, object>
         {
-            {"state", "absent" },
-            { "keyname", "start.ps1" },
+            {"state", "absent"},
+            {"keyname", "start.ps1"}
         };
 
-        AutostartAction autostartAction = new AutostartAction(mainPs1Autostart);
+        var autostartAction = new AutostartAction(autostartConfig);
         autostartAction.Invoke();
     }
+
     private static void CheckDuplicateIndexes(List<ActionBase> actions)
     {
-        HashSet<int> indexes = new HashSet<int>();
-
-        foreach (IAction action in actions)
+        var indexes = new HashSet<int>();
+        foreach (var action in actions)
         {
             if (indexes.Contains(action.Index))
             {
-                throw new InvalidOperationException("Duplicate index found, action id: " + action.Index
-                    + " Action data: " + action.ToString());
+                throw new InvalidOperationException($"Duplicate index found: {action.Index}. Action data: {action}");
             }
-
             indexes.Add(action.Index);
         }
     }
 
     public static void SetNetworksLocationToPrivate()
     {
-        INetworkListManager nlm = (INetworkListManager)new NetworkListManagerClass();
-        IEnumerable networks = nlm.GetNetworks(NetworkConnectivityLevels.All);
-        foreach (INetwork network in networks)
+        try
         {
-            network.SetCategory(NetworkCategory.Private);
+            var nlm = (INetworkListManager)new NetworkListManagerClass();
+            var networks = nlm.GetNetworks(NetworkConnectivityLevels.All);
+            foreach (INetwork network in networks)
+            {
+                network.SetCategory(NetworkCategory.Private);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogError("Failed to set network location to private", ex);
+            throw;
         }
     }
+
     public static void EnableAdministratorAccount(string accountName)
     {
-        using (ManagementObjectSearcher searcher = new ManagementObjectSearcher(
-                "SELECT * FROM Win32_UserAccount WHERE Name='" + accountName + "'"))
+        try
         {
-            ManagementObjectCollection accounts = (ManagementObjectCollection)searcher.Get();
-            foreach (ManagementObject account in accounts)
+            using (var searcher = new ManagementObjectSearcher($"SELECT * FROM Win32_UserAccount WHERE Name='{accountName}'"))
             {
-                if (account != null)
+                foreach (ManagementObject account in searcher.Get())
                 {
-                    if ((bool)account["Disabled"])
+                    if (account != null && (bool)account["Disabled"])
                     {
                         account["Disabled"] = false;
                         account.Put();
@@ -151,10 +231,20 @@ public class WinImageBuilderAutomation
                 }
             }
         }
+        catch (Exception ex)
+        {
+            LogError($"Failed to enable administrator account: {accountName}", ex);
+            throw;
+        }
+    }
+
+    private static void LogError(string message, Exception ex)
+    {
+        string logPath = Path.Combine(Environment.GetEnvironmentVariable("USERPROFILE"), "ansible-action-setup.log");
+        string logEntry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - {message}\nError: {ex.Message}\nStack Trace:\n{ex.StackTrace}\n";
+        File.AppendAllText(logPath, logEntry);
     }
 }
-
-
 
 public class ActionTracker : IDisposable
 {
@@ -198,9 +288,6 @@ public class ActionTracker : IDisposable
     }
 }
 
-
-
-
 internal class ActionComparer : IComparer<ActionBase>
 {
     public int Compare(ActionBase a, ActionBase b)
@@ -210,8 +297,6 @@ internal class ActionComparer : IComparer<ActionBase>
         return indexA.CompareTo(indexB);
     }
 }
-
-
 
 internal class CustomDispatchConverter : JavaScriptConverter
 {
@@ -291,7 +376,6 @@ internal class CustomDispatchConverter : JavaScriptConverter
         throw new Exception("Unknown action type. Action data: " + dictionary.ToString());
     }
 
-
     public override IDictionary<string, object> Serialize(object obj, JavaScriptSerializer serializer)
     {
         throw new NotImplementedException();
@@ -300,11 +384,7 @@ internal class CustomDispatchConverter : JavaScriptConverter
     {
         get { return new List<Type>(new List<Type>(new[] { typeof(object) })); }
     }
-
 }
-
-
-
 
 internal interface IAction
 {
@@ -318,7 +398,6 @@ internal abstract class ActionBase : IAction
     public ActionBase() { }
     public int Index { get; set; }
     public bool Restart { get; set; }
-
 
     public abstract void Invoke();
     protected T TryGetValue<T>(IDictionary<string, object> item, string key, T defaultValue)
@@ -336,7 +415,6 @@ internal abstract class ActionBase : IAction
     }
 }
 
-
 internal class FileAction : ActionBase
 {
     private string path;
@@ -347,7 +425,6 @@ internal class FileAction : ActionBase
         Absent
     }
     private State state;
-
 
     public FileAction(IDictionary<string, object> actionData)
     {
@@ -375,7 +452,6 @@ internal class FileAction : ActionBase
                 DateTime newLastWriteTime = DateTime.Now;
                 if (!Directory.Exists(path))
                 {
-
                     if (!File.Exists(path))
                     {
                         File.Create(path);
@@ -390,7 +466,6 @@ internal class FileAction : ActionBase
                     Directory.SetLastWriteTime(path, newLastWriteTime);
                 }
                 break;
-
 
             case State.Absent:
                 if (File.Exists(path))
@@ -421,7 +496,6 @@ internal class FileAction : ActionBase
 
         return result;
     }
-
 }
 
 internal class RegistryAction : ActionBase
@@ -556,10 +630,8 @@ internal class RegistryAction : ActionBase
         }
     }
 
-
     private void DeleteRegistryKeyOrValue()
     {
-
         using (RegistryKey baseKey = OpenBaseKey(path))
         {
             using (RegistryKey key = baseKey.OpenSubKey(path, true))
@@ -594,10 +666,8 @@ internal class RegistryAction : ActionBase
 
         return result;
     }
-
 }
 
-//shell32 may fail but it tries to insert workdir and then search second time
 internal class UnzipAction : ActionBase
 {
     private string zipPath;
@@ -618,7 +688,6 @@ internal class UnzipAction : ActionBase
                 + " Action data: " + actionData.ToString(), ex);
         }
     }
-
 
     public override void Invoke()
     {
@@ -645,7 +714,6 @@ internal class UnzipAction : ActionBase
         {
             destination.CopyHere(item, 8 | 16 | 512 | 1024);
         }
-
     }
     public override string ToString()
     {
@@ -660,7 +728,6 @@ internal class UnzipAction : ActionBase
 
         return result;
     }
-
 }
 
 internal class ExeAction : ActionBase
@@ -681,7 +748,6 @@ internal class ExeAction : ActionBase
                 + actionData.ToString(), ex);
         }
     }
-
 
     public override void Invoke()
     {
@@ -704,7 +770,6 @@ internal class ExeAction : ActionBase
 
         return result;
     }
-
 }
 
 internal class MsuAction : ActionBase
@@ -768,7 +833,6 @@ internal class MsuAction : ActionBase
 
         return result;
     }
-
 }
 
 internal class MsiAction : ActionBase
@@ -818,16 +882,15 @@ internal class MsiAction : ActionBase
 
         return result;
     }
-
 }
-class DismAction : ActionBase
+
+internal class DismAction : ActionBase
 {
     private const string DismAssembly = "DismApi.dll";
     private const string DISM_ONLINE_IMAGE = "DISM_{53BFAE52-B167-4E2F-A258-0A37B57FF845}"; // Placeholder value, you need to use the actual constant from the DISM API
     private string packagePath;
     private bool ignoreCheck;
     private bool preventPending;
-
 
     [DllImport(DismAssembly, CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Error)]
@@ -855,7 +918,6 @@ class DismAction : ActionBase
 
         ignoreCheck = TryGetValue(actionData, "ignorecheck", false);
         preventPending = TryGetValue(actionData, "preventpending", false);
-
     }
 
     public override void Invoke()
@@ -900,7 +962,6 @@ class DismAction : ActionBase
 
         return result;
     }
-
 }
 
 internal class CopyAction : ActionBase
@@ -952,7 +1013,6 @@ internal class CopyAction : ActionBase
             {
                 if (content.Equals(String.Empty))
                 {
-
                     File.Copy(source, destination, force);
                 }
                 else
@@ -1008,7 +1068,6 @@ internal class CopyAction : ActionBase
 
         return result;
     }
-
 }
 
 internal class CmdAction : ActionBase
@@ -1027,7 +1086,6 @@ internal class CmdAction : ActionBase
                 + " Action data: " + actionData.ToString(), ex);
         }
     }
-
 
     public override void Invoke()
     {
@@ -1063,10 +1121,7 @@ internal class CmdAction : ActionBase
 
         return result;
     }
-
 }
-
-
 
 internal class PathAction : ActionBase
 {
@@ -1104,7 +1159,6 @@ internal class PathAction : ActionBase
             throw new ArgumentException("PathAction: Invalid state value. Only 'Present' or 'Absent' are supported"
                 + " Action data: " + actionData.ToString());
         }
-
     }
 
     public override void Invoke()
@@ -1151,8 +1205,6 @@ internal class PathAction : ActionBase
     }
 }
 
-
-
 internal class AutostartAction : ActionBase
 {
     private string keyName;
@@ -1182,7 +1234,6 @@ internal class AutostartAction : ActionBase
                 + " Action data: " + actionData.ToString());
         }
     }
-
 
     public override void Invoke()
     {
@@ -1222,10 +1273,7 @@ internal class AutostartAction : ActionBase
 
         return result;
     }
-
 }
-
-
 
 internal class SingleInstance : IDisposable
 {
@@ -1251,8 +1299,6 @@ internal class SingleInstance : IDisposable
         path = null;
     }
 }
-
-
 
 public enum NetworkCategory { Public, Private, Authenticated }
 [Flags]
@@ -1327,7 +1373,6 @@ namespace Shell32
         new IEnumerator GetEnumerator();
     }
 
-
     [ComImport, Guid("BBCBDE60-C3FF-11CE-8350-444553540000")]
     [InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
     public interface Folder
@@ -1338,7 +1383,6 @@ namespace Shell32
         [MethodImpl(MethodImplOptions.InternalCall, MethodCodeType = MethodCodeType.Runtime), DispId(0x60020008)]
         void CopyHere([In, MarshalAs(UnmanagedType.Struct)] object vItem, [In, Optional, MarshalAs(UnmanagedType.Struct)] object vOptions);
     }
-
 
     [ComImport, Guid("D8F015C0-C278-11CE-A49E-444553540000"), TypeLibType((short)0x1050)]
     [InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
