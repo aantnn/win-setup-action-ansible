@@ -58,7 +58,7 @@
           --memory {{ vm_ram }}
           --vcpus={{ ansible_processor_vcpus }}
           --channel unix,mode=bind,target.type=virtio,target.name="org.qemu.qemu.guest_agent"
-          --serial pty,target.port=5,log.file=/var/log/vm/{{ vm_name }}-serial.log,log.append=on
+          --serial pty,target.port=3,log.file=/var/log/vm/{{ vm_name }}-serial.log,log.append=on
           --graphics vnc,listen=0.0.0.0 --noautoconsole
           --print-xml
       register: created_vm_config
