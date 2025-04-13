@@ -16,6 +16,9 @@
   connection: local
 
   tasks:
+    - name: Include Windows 7 x64 setup tasks
+      ansible.builtin.include_tasks: windows7-x64-setup.yml
+
     - name: Checking vm disk existance
       ansible.builtin.stat:
         path: "{{ vm_disk_path }}"
@@ -41,6 +44,7 @@
       register: created_disk
       when: not vm_disk_check.stat.exists
       changed_when: created_disk.rc == 0
+    
     - name: Create virtual machine XML config
       ansible.builtin.command:
       # NOTE: nic,model=virtio-net-pci,addr= 4,5 or some other value, may conflict
@@ -50,10 +54,11 @@
           -net user,hostfwd=tcp::3389-:3389,hostfwd=tcp::5985-:5985'
           --disk "{{ vm_disk_path }}",format=qcow2,bus=virtio
           --disk "{{ os_iso_path }}",device=cdrom
-          --disk "{{ vm_config_iso }}",device=cdrom
+          --disk "{{ vm_config_iso_path }}",device=cdrom
           --memory {{ vm_ram }}
           --vcpus={{ ansible_processor_vcpus }}
           --channel unix,mode=bind,target.type=virtio,target.name="org.qemu.qemu.guest_agent"
+          --serial pty,target.port=5,log.file=/var/log/vm/{{ vm_name }}-serial.log,log.append=on
           --graphics vnc,listen=0.0.0.0 --noautoconsole
           --print-xml
       register: created_vm_config
@@ -72,3 +77,40 @@
       community.libvirt.virt:
           name: "{{ vm_name }}"
           state: running
+
+    # Log monitoring tasks
+    - name: Ensure log directory exists
+      ansible.builtin.file:
+        path: /var/log/vm
+        state: directory
+        mode: '0755'
+      when: debug_vm_install | default(false)
+
+    - name: Monitor guest log file for errors
+      ansible.builtin.wait_for:
+        path: "/var/log/vm/{{ vm_name }}-serial.log"
+        state: present
+        timeout: "{{ monitor_timeout | default(600) }}"
+      register: log_file_check
+      when: debug_vm_install | default(false)
+
+    - name: Check for errors in log file
+      ansible.builtin.shell: |
+        grep -A 10 "ANSIBLE_ERROR_MARKER_START" "/var/log/vm/{{ vm_name }}-serial.log" || true
+      register: error_check
+      changed_when: false
+      failed_when: error_check.stdout != ""
+      when: debug_vm_install | default(false)
+
+    - name: Display error if found
+      ansible.builtin.debug:
+        msg: "Error detected in guest: {{ error_check.stdout }}"
+      when: debug_vm_install | default(false) and error_check.stdout != ""
+
+    - name: Stop VM on error
+      community.libvirt.virt:
+        name: "{{ vm_name }}"
+        state: stopped
+      when: debug_vm_install | default(false) and error_check.stdout != ""
+
+     

@@ -165,7 +165,7 @@
           - '{{ iso_temp_root_build_dir.path }}/iso/main.ps1'
           - '{{ iso_temp_root_build_dir.path }}/iso/install.json'
           - '{{ iso_temp_root_build_dir.path }}/iso/autounattend.xml'
-        dest_iso: '{{ iso_output_path }}'
+        dest_iso: '{{ vm_config_iso_path }}'
         interchange_level: 4
         joliet: 3
         vol_ident: WIN_AUTOINSTALL

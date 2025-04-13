@@ -30,6 +30,7 @@ function Start-App() {
         return
     }
     Import-DotNetAssembly
+    $adminUserName = Get-LocalizedAdminAccountName
     [WinImageBuilderAutomation]::EnableAdministratorAccount($adminUserName)
     [WinImageBuilderAutomation]::AddToAutoStart($startupPath)
     [WinImageBuilderAutomation]::Main2( $installJson, $driveLetter)
@@ -218,8 +219,8 @@ public class RunAsCredentialManager
 
 try {
     $driveLetter = Get-ConfigDrive -FileToFind $installJson;
-    $installJson = "$driveLetter\$installjson"
-    $startupPath = "$driveLetter\$entry_point"
+    $installJson = "$driveLetter\$installJson"
+    $startupPath = "$driveLetter\$startupPath"
     $MainCodeFile = "$driveLetter\$MainCodeFile";
     Start-App
     exit
@@ -227,7 +228,7 @@ try {
 catch {
     $trace = $_.ScriptStackTrace
     $invocationInfo = $_.InvocationInfo
-    # Log the error to the error log file
+    # Log the error to serial port and file
     $errorMessage = $_.Exception.Message
     $fullErrorMessage = $_.Exception.ToString()
     $errorTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -243,8 +244,22 @@ Stack Trace:
 $trace
 "@
 
-    Add-Content -Encoding utf8 -Path "$env:USERPROFILE\ansible-action-setup.log" -Value $logEntry
+    # Write to serial port (COM1) for KVM VM debugging
+    try {
+        $serialPort = New-Object System.IO.Ports.SerialPort COM5
+        $serialPort.Open()
+        # Write a special marker that Ansible can detect
+        $serialPort.WriteLine("ANSIBLE_ERROR_MARKER_START")
+        $serialPort.WriteLine($logEntry)
+        $serialPort.WriteLine("ANSIBLE_ERROR_MARKER_END")
+        $serialPort.Close()
+    }
+    catch {
+        # If serial port fails, fall back to file logging
+        Add-Content -Encoding utf8 -Path "$env:USERPROFILE\ansible-action-setup.log" -Value $logEntry
+    }
+
+    # Display error in PowerShell
     Write-Error $logEntry
     throw
-    
 }

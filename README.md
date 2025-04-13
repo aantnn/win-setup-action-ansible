@@ -7,11 +7,13 @@ that automates the installation of prerequisites for Ansible to run on Windows a
 Run </br>
 ```bash
 ansible-playbook example-win7-x64.yml --extra-vars iso_output_path="/path/to/output_config.iso"
+#or
+ansible-playbook create-and-start-vm.yml --extra-vars "vm_disk_path=/path/to/vm.qcow2 vm_name=win7-x64 vm_disk_size=50 vm_os_variant=win7 os_iso_path=/path/to/win7.iso vm_ram=4096 vm_config_iso_path=/path/to/output_config.iso vm_xml_path=/path/to/vm.xml debug_vm_install=true"
 ```
 then attach it to vm with windows iso
 
 ### Windows Part
-[In this repo in C#](https://github.com/antnn/win-setup-action-ansible/blob/main/action_plugins/templates/main.cs)
+[In this repo in C#](https://github.com/aantnn/win-setup-action-ansible/blob/main/action_plugins/templates/main.cs)
 
 ### Define the Playbook Hosts and Connection:
 This playbook is designed to automate the setup and configuration of a Windows environment, including downloading necessary updates, installing applications, and creating a bootable ISO with all configurations and drivers pre-included.
