@@ -8,7 +8,7 @@ Run </br>
 ```bash
 ansible-playbook example-win7-x64.yml --extra-vars iso_output_path="/path/to/output_config.iso"
 #or
-ansible-playbook create-and-start-vm.yml --extra-vars "vm_disk_path=/path/to/vm.qcow2 vm_name=win7-x64 vm_disk_size=50 vm_os_variant=win7 os_iso_path=/path/to/win7.iso vm_ram=4096 vm_config_iso_path=/path/to/output_config.iso vm_xml_path=/path/to/vm.xml debug_vm_install=true"
+ansible-playbook create-and-start-vm.yml --extra-vars "vm_disk_path=/path/to/vm.qcow2 vm_name=win7-x64 vm_disk_size=50 vm_os_variant=win7 os_iso_path=/path/to/win7.iso vm_ram=4096 vm_config_iso_path=/path/to/output_config.iso vm_xml_path=/path/to/vm.xml debug_vm_install=3"
 ```
 then attach it to vm with windows iso
 

@@ -284,7 +284,6 @@ Stack Trace:
 $trace
 "@
 
-    # Write to serial port (COM1) for KVM VM debugging
     try {
         $serialPort = New-Object System.IO.Ports.SerialPort $debugSerialPort
         $serialPort.Open()
