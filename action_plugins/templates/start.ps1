@@ -2,7 +2,7 @@ $installJson = "{{default_package_json_path}}"
 $startupPath = "{{entry_point}}"
 $MainCodeFile = "{{main_code}}"
 $adminPassword = "{{admin_password}}"
-$debugSerialPort = "COM"+([int]"{{debug_serial_port}}"+1)
+$debugSerialPort = "COM"+([int]"{{debug_serial_port}}"+1) # numbering starts with 0 in QEMU
 
 function Get-ConfigDrive {
     param (
@@ -283,7 +283,6 @@ Full Error: $fullErrorMessage
 Stack Trace:
 $trace
 "@
-
     try {
         $serialPort = New-Object System.IO.Ports.SerialPort($debugSerialPort, 115200)
         $serialPort.Open()
@@ -294,9 +293,11 @@ $trace
         $serialPort.Close()
     }
     catch {
-        # If serial port fails, fall back to file logging
-        Add-Content -Encoding utf8 -Path "$env:USERPROFILE\ansible-action-setup.log" -Value $logEntry
+        Write-Warning "Failed to write to serial port $debugSerialPort : $_"
     }
+
+
+    Add-Content -Encoding utf8 -Path "$env:SYSTEMDRIVE\ansible-action-setup.log" -Value $logEntry
 
     # Display error in PowerShell
     Write-Error $logEntry
