@@ -183,7 +183,8 @@ class ActionModule(ActionBase):
         "static_route_cidr",
         "static_gateway_ip",
         "static_dns_server",
-        "static_secondary_dns_server"
+        "static_secondary_dns_server",
+        "debug_serial_port"
     ))
 
     def _get_arg(self, key: str, default: Any = None) -> Any:
@@ -281,6 +282,9 @@ class ActionModule(ActionBase):
         
         # First logon command
         task_vars["first_logon_cmd"] = self._get_arg("first_logon_cmd", DEFAULT_FIRST_LOGON_CMD)
+        
+        # Debug serial port
+        task_vars["debug_serial_port"] = self._get_arg("debug_serial_port", "")
         
         # ===== File Configuration =====
         # Paths and file names for the automation code

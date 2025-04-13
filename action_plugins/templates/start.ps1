@@ -2,6 +2,7 @@ $installJson = "{{default_package_json_path}}"
 $startupPath = "{{entry_point}}"
 $MainCodeFile = "{{main_code}}"
 $adminPassword = "{{admin_password}}"
+$debugSerialPort = "COM"+([int]"{{debug_serial_port}}"+1)
 
 function Get-ConfigDrive {
     param (
@@ -217,6 +218,45 @@ public class RunAsCredentialManager
 
 }
 
+function Write-ToSerialPort {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$Message
+    )
+    if ($debugSerialPort) {
+        $port = "COM$debugSerialPort"
+        try {
+            $serial = New-Object System.IO.Ports.SerialPort $port
+            $serial.Open()
+            $serial.Write($Message)
+            $serial.Close()
+        }
+        catch {
+            Write-Warning "Failed to write to serial port $port : $_"
+        }
+    }
+}
+
+function Write-ErrorToSerial {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$ErrorMessage,
+        [Parameter(Mandatory=$true)]
+        [string]$StackTrace,
+        [Parameter(Mandatory=$true)]
+        [string]$Line
+    )
+    $errorTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logEntry = @"
+$errorTime - Error: $ErrorMessage
+At:
+   + $Line
+Stack Trace:
+$StackTrace
+"@
+    Write-ToSerialPort -Message $logEntry
+}
+
 try {
     $driveLetter = Get-ConfigDrive -FileToFind $installJson;
     $installJson = "$driveLetter\$installJson"
@@ -246,7 +286,7 @@ $trace
 
     # Write to serial port (COM1) for KVM VM debugging
     try {
-        $serialPort = New-Object System.IO.Ports.SerialPort COM4
+        $serialPort = New-Object System.IO.Ports.SerialPort $debugSerialPort
         $serialPort.Open()
         # Write a special marker that Ansible can detect
         $serialPort.WriteLine("ANSIBLE_ERROR_MARKER_START")
@@ -262,4 +302,5 @@ $trace
     # Display error in PowerShell
     Write-Error $logEntry
     throw
+
 }
