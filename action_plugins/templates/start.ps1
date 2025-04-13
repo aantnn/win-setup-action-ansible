@@ -285,7 +285,7 @@ $trace
 "@
 
     try {
-        $serialPort = New-Object System.IO.Ports.SerialPort $debugSerialPort
+        $serialPort = New-Object System.IO.Ports.SerialPort($debugSerialPort, 115200)
         $serialPort.Open()
         # Write a special marker that Ansible can detect
         $serialPort.WriteLine("ANSIBLE_ERROR_MARKER_START")
