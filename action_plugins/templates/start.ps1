@@ -246,7 +246,7 @@ $trace
 
     # Write to serial port (COM1) for KVM VM debugging
     try {
-        $serialPort = New-Object System.IO.Ports.SerialPort COM5
+        $serialPort = New-Object System.IO.Ports.SerialPort COM4
         $serialPort.Open()
         # Write a special marker that Ansible can detect
         $serialPort.WriteLine("ANSIBLE_ERROR_MARKER_START")
