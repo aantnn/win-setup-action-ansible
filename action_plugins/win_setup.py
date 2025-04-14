@@ -24,7 +24,7 @@ DEFAULT_MAIN_CODE_FILE = "main.cs"
 DEFAULT_INSTALL_JSON_PATH = "install.json"
 
 # ===== Command Constants =====
-DEFAULT_FIRST_LOGON_CMD = "start powershell.exe -NoExit -ExecutionPolicy Bypass -File"
+DEFAULT_FIRST_LOGON_CMD = "start powershell.exe -ExecutionPolicy Bypass -File"
 
 # Search for start.ps1
 DEFAULT_FIRST_LOGON_CMD = (
