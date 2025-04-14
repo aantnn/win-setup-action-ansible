@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Web.Script.Serialization;
 using Microsoft.Win32;
+using System.Threading;
 
 
 
@@ -30,9 +31,14 @@ public class WinImageBuilderAutomation
     public static void Main2(string packageJsonPath, string diskDrive)
     {
         Directory.SetCurrentDirectory(diskDrive);
-        using (SingleInstance instance = new SingleInstance(Environment.GetEnvironmentVariable("TEMP")
-            + "\\ansiblewinbuilder.lock"))
+
+        bool fenceCreated;
+        using (var fence = new Mutex(true, "Global\\AnsibleWinBuilder", out fenceCreated))
         {
+            if (!fenceCreated)
+            {
+                throw new Exception("Another instance is running");
+            }
             string doneList = Environment.GetEnvironmentVariable("SystemDrive")
                 + "\\ansible-win-setup-done-list.log";
 
@@ -62,7 +68,6 @@ public class WinImageBuilderAutomation
                             Environment.Exit(0);
                             return;
                         }
-
                     }
                 }
                 indexTracker.Save();
@@ -318,7 +323,7 @@ internal abstract class ActionBase : IAction
 
 
     public abstract void Invoke();
-    
+
     // Modified to be more compatible with .NET 2.0
     protected T TryGetValue<T>(IDictionary<string, object> item, string key, T defaultValue)
     {
@@ -1204,7 +1209,7 @@ internal class AutostartAction : ActionBase
             {
                 switch (state)
                 {
-                    case State.Present: 
+                    case State.Present:
                         key.SetValue(keyName, value, RegistryValueKind.String);
                         break;
                     case State.Absent:
@@ -1234,34 +1239,6 @@ internal class AutostartAction : ActionBase
     }
 
 }
-
-
-
-internal class SingleInstance : IDisposable
-{
-    private string path;
-    private FileStream file;
-    public SingleInstance(string path)
-    {
-        this.path = path;
-        try
-        {
-            file = File.Open(path, FileMode.Append);
-        }
-        catch (IOException ex)
-        {
-            throw new Exception("Only single instance allowed", ex);
-        }
-    }
-
-    public void Dispose()
-    {
-        file.Dispose();
-        File.Delete(path);
-        path = null;
-    }
-}
-
 
 
 public enum NetworkCategory { Public, Private, Authenticated }

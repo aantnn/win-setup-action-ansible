@@ -142,7 +142,7 @@ try {
     exit
 }
 catch {
-    $trace = if ($_.ScriptStackTrace) { $_.ScriptStackTrace } else { $_ }
+    $trace = $_.ScriptStackTrace
     $invocationInfo = $_.InvocationInfo
     # Log the error to serial port and file
     $errorMessage = $_.Exception.Message
@@ -151,10 +151,16 @@ catch {
 
     $errorLine = $invocationInfo.Line.Trim()
 
+    # Check if this is the "Only single instance allowed" error
+    if ($errorMessage -like "*Another instance is running*") {
+        Write-Host "Another instance is already running. Exiting gracefully."
+        exit 0
+    }
+
     $logEntry = @"
 $errorTime - Error: $errorMessage
 At:
-   + $errorLine
+    + $errorLine
 Full Error: $fullErrorMessage 
 Stack Trace:
 $trace
