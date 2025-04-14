@@ -288,7 +288,7 @@ class ActionModule(ActionBase):
         
         # ===== File Configuration =====
         # Paths and file names for the automation code
-        task_vars["install_json"] = DEFAULT_INSTALL_JSON_PATH
+        #task_vars["install_json"] = DEFAULT_INSTALL_JSON_PATH
         task_vars["entry_point"] = DEFAULT_ENTRY_POINT
         task_vars["main_code"] = DEFAULT_MAIN_CODE_FILE
         task_vars["default_package_json_path"] = DEFAULT_INSTALL_JSON_PATH
