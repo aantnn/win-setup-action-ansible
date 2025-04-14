@@ -7,23 +7,21 @@ $debugSerialPort = "COM"+([int]"{{debug_serial_port}}"+1) # numbering starts wit
 function Get-ConfigDrive {
     param (
         [Parameter(Mandatory=$true)]
-        [string]$FileToFind
+        [string]$fileToFind
     )
     
-    # Extract the filename from the path
-    $fileName = Split-Path -Leaf $FileToFind
-    
-    # Search for the file on all drives
-    foreach ($drive in (Get-Volume | Where-Object { $_.DriveLetter } | Select-Object -ExpandProperty DriveLetter)) {
-        $filePath = Join-Path -Path "$drive`:\" -ChildPath $fileName
-        if (Test-Path -Path $filePath) {
-            return "$drive`:\"
+    $drives = Get-PSDrive -PSProvider FileSystem
+    foreach ($drive in $drives) {
+        $driveLetter = $drive.Name + ":"
+        $filePath = Join-Path -Path $driveLetter -ChildPath $fileToFind
+        if (Test-Path $filePath) {
+            return $driveLetter
         }
     }
-    
-    # If not found, return null
-    return $null
+    $errorMessage = "Configuration file '$fileToFind' not found on any drive. Please ensure the config file exists and is accessible."
+    throw [System.IO.FileNotFoundException]::new($errorMessage, $fileToFind)
 }
+
 
 function Start-App() {
     if (-not (Test-Administrator)) {
@@ -237,26 +235,6 @@ function Write-ToSerialPort {
     }
 }
 
-function Write-ErrorToSerial {
-    param (
-        [Parameter(Mandatory=$true)]
-        [string]$ErrorMessage,
-        [Parameter(Mandatory=$true)]
-        [string]$StackTrace,
-        [Parameter(Mandatory=$true)]
-        [string]$Line
-    )
-    $errorTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $logEntry = @"
-$errorTime - Error: $ErrorMessage
-At:
-   + $Line
-Stack Trace:
-$StackTrace
-"@
-    Write-ToSerialPort -Message $logEntry
-}
-
 try {
     $driveLetter = Get-ConfigDrive -FileToFind $installJson;
     $installJson = "$driveLetter\$installJson"
@@ -295,7 +273,6 @@ $trace
     catch {
         Write-Warning "Failed to write to serial port $debugSerialPort : $_"
     }
-
 
     Add-Content -Encoding utf8 -Path "$env:SYSTEMDRIVE\ansible-action-setup.log" -Value $logEntry
 

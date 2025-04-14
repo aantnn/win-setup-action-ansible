@@ -6,8 +6,14 @@
     pkg_dir: 'toinstall'
     # Put drivers in {{config_dive}}/$WinpeDriver$ Windows will autoinstall it
     drivers_dir: '$WinpeDriver$'
+  pre_tasks:
+    - name: Check if pycdlib is available
+      ansible.builtin.command: python3 -c "import pycdlib"
+
+    - name: Check if 7zip is installed
+      ansible.builtin.command: 7z
+    
   tasks:
-  #NOTE TLS 1.2 https://catalog.update.microsoft.com/search.aspx?q=kb3140245
     - name: Create temporary work directory
       ansible.builtin.tempfile:
         state: directory
@@ -26,7 +32,7 @@
         user_name: "IEUser"
         user_password: "Passw0rd!"
         computer_name: "IEWIN"
-        debug_serial_port: {{ debug_serial_port }}
+        debug_serial_port: "{{ debug_serial_port }}"
         #first_logon_cmd: ""
 
         # Gets converted to install.json to use in Windows Powershell

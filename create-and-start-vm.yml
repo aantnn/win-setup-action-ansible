@@ -14,8 +14,6 @@
 ---
 - hosts: 127.0.0.1
   connection: local
-  vars:
-    debug_serial_port: {{ debug_vm_install }}
   tasks:
     - name: Include Windows 7 x64 setup tasks
       ansible.builtin.include_tasks: windows7-x64-setup.yml
@@ -59,7 +57,7 @@
           --memory {{ vm_ram }}
           --vcpus={{ ansible_processor_vcpus }}
           --channel unix,mode=bind,target.type=virtio,target.name="org.qemu.qemu.guest_agent"
-          --serial file,path=/var/log/vm/{{ vm_name }}-serial.log,target.port={{ debug_serial_port }}
+          {% if debug_serial_port is defined %}--serial file,path=/var/log/vm/{{ vm_name }}-serial.log,target.port={{ debug_serial_port }}{% endif %}
           --graphics vnc,listen=0.0.0.0 --noautoconsole
           --print-xml
       register: created_vm_config
