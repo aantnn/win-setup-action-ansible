@@ -32,47 +32,40 @@ public class WinImageBuilderAutomation
     {
         Directory.SetCurrentDirectory(diskDrive);
 
-        bool fenceCreated;
-        using (var fence = new Mutex(true, "Global\\AnsibleWinBuilder", out fenceCreated))
+        string doneList = Environment.GetEnvironmentVariable("SystemDrive")
+            + "\\ansible-win-setup-done-list.log";
+
+        List<ActionBase> actions = LoadAndDeserialize(packageJsonPath);
+
+        actions.Sort(new ActionComparer()); // sort by Index property (priority)
+
+        CheckDuplicateIndexes(actions);
+
+        using (ActionTracker indexTracker = new ActionTracker(doneList))
         {
-            if (!fenceCreated)
+            foreach (IAction action in actions)
             {
-                throw new Exception("Another instance is running");
-            }
-            string doneList = Environment.GetEnvironmentVariable("SystemDrive")
-                + "\\ansible-win-setup-done-list.log";
-
-            List<ActionBase> actions = LoadAndDeserialize(packageJsonPath);
-
-            actions.Sort(new ActionComparer()); // sort by Index property (priority)
-
-            CheckDuplicateIndexes(actions);
-
-            using (ActionTracker indexTracker = new ActionTracker(doneList))
-            {
-                foreach (IAction action in actions)
+                if (indexTracker.IsDone(action.Index))
                 {
-                    if (indexTracker.IsDone(action.Index))
-                    {
-                        continue;
-                    }
-                    else
-                    {
-                        action.Invoke();
+                    continue;
+                }
+                else
+                {
+                    action.Invoke();
 
-                        indexTracker.Append(action.Index);
-                        if (action.Restart)
-                        {
-                            indexTracker.Save();
-                            Process.Start("shutdown", "/r /t 0");
-                            Environment.Exit(0);
-                            return;
-                        }
+                    indexTracker.Append(action.Index);
+                    if (action.Restart)
+                    {
+                        indexTracker.Save();
+                        Process.Start("shutdown", "/r /t 0");
+                        Environment.Exit(0);
+                        return;
                     }
                 }
-                indexTracker.Save();
             }
+            indexTracker.Save();
         }
+
         RemoveFromAutoStart();
     }
 

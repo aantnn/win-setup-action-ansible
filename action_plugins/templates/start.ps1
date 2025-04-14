@@ -138,7 +138,24 @@ try {
     $installJson = "$driveLetter\$installJson"
     $startupPath = "$driveLetter\$startupPath"
     $MainCodeFile = "$driveLetter\$MainCodeFile";
-    Start-App
+
+    $mutexName = "Global\AnsibleWinBuilder"
+    $mutex = $null
+    $createdNew = $false
+    try {
+        $mutex = [System.Threading.Mutex]::new($true, $mutexName, [ref]$createdNew)
+        
+        if (-not $createdNew) {
+            Write-Host "Another instance is already running. Exiting gracefully."
+            exit 0
+        }
+        Start-App
+    } finally {
+        if ($mutex -and $createdNew) {
+            $mutex.ReleaseMutex()
+            $mutex.Dispose()
+        }
+    }
     exit
 }
 catch {
@@ -150,12 +167,6 @@ catch {
     $errorTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
     $errorLine = $invocationInfo.Line.Trim()
-
-    # Check if this is the "Only single instance allowed" error
-    if ($errorMessage -like "*Another instance is running*") {
-        Write-Host "Another instance is already running. Exiting gracefully."
-        exit 0
-    }
 
     $logEntry = @"
 $errorTime - Error: $errorMessage
