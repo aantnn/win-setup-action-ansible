@@ -219,7 +219,7 @@ class ActionModule(ActionBase):
         
         try:
             # Validate required parameters
-            validate_required_params(self._task.args, ["config_output_dir", "installation_steps"])
+            validate_required_params(self._task.args, ["config_output_dir", "image_index", "installation_steps"])
             
             # Prepare task variables
             task_vars.update(self._prepare_template_vars(task_vars))

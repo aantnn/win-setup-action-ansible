@@ -27,6 +27,7 @@
       win_setup:
         # destination (root dir) for config files, generate ISO file in next tasks
         config_output_dir: '{{ iso_temp_root_build_dir.path }}/iso'
+        image_index: 1
         # Change credentials after ansible installation if needed
         admin_password: "Passw0rd!"
         user_name: "IEUser"
