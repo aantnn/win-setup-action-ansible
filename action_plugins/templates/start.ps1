@@ -143,8 +143,7 @@ try {
     $mutex = $null
     $createdNew = $false
     try {
-        $mutex = [System.Threading.Mutex]::new($true, $mutexName, [ref]$createdNew)
-        
+        $mutex = New-Object System.Threading.Mutex($true, $mutexName, [ref]$createdNew)
         if (-not $createdNew) {
             Write-Host "Another instance is already running. Exiting gracefully."
             exit 0
@@ -153,7 +152,7 @@ try {
     } finally {
         if ($mutex -and $createdNew) {
             $mutex.ReleaseMutex()
-            $mutex.Dispose()
+            $mutex.Close()
         }
     }
     exit
