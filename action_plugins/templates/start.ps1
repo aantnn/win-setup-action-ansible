@@ -39,7 +39,7 @@ function Start-App() {
 }
 
 function Start-ElevatedProcess() {
-    $osInfo = Get-CimInstance Win32_OperatingSystem
+    $osInfo = Get-WmiObject Win32_OperatingSystem
     $isServer2022 = $osInfo.Caption -like "*Server 2022*"
     $adminUserName = Get-LocalizedAdminAccountName
     if ($isServer2022) {
